@@ -1,0 +1,161 @@
+html,
+body,
+div,
+span,
+applet,
+object,
+iframe,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+blockquote,
+pre,
+a,
+abbr,
+acronym,
+address,
+big,
+cite,
+code,
+del,
+dfn,
+em,
+img,
+ins,
+kbd,
+q,
+s,
+samp,
+small,
+strike,
+strong,
+sub,
+sup,
+tt,
+var,
+b,
+u,
+i,
+center,
+dl,
+dt,
+dd,
+ol,
+ul,
+li,
+fieldset,
+form,
+label,
+legend,
+table,
+caption,
+tbody,
+tfoot,
+thead,
+tr,
+th,
+td,
+article,
+aside,
+canvas,
+details,
+embed,
+figure,
+figcaption,
+footer,
+header,
+hgroup,
+menu,
+nav,
+output,
+ruby,
+section,
+summary,
+time,
+mark,
+audio,
+video {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    font-size: 100%;
+    vertical-align: baseline;
+}
+/* HTML5 display-role reset for older browsers */
+article,
+aside,
+details,
+figcaption,
+figure,
+footer,
+header,
+hgroup,
+menu,
+nav,
+section {
+    display: block;
+}
+body {
+    line-height: 1;
+}
+ol,
+ul {
+    list-style: none;
+}
+* {
+    box-sizing: border-box;
+    outline: none;
+    font: inherit;
+}
+html,
+body,
+#root {
+    height: 100%;
+    max-height: 100vh;
+    overflow: hidden;
+}
+
+.MuiCardContent-root:last-child {
+  padding-bottom: 12px !important;
+}
+
+.hidden-scroll {
+    overflow: moz-scrollbars-none;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+.hidden-scroll::-webkit-scrollbar {
+    display: none;
+}
+
+/* total width */
+.mac-scrollbar::-webkit-scrollbar {
+  background-color: transparent;
+  width:16px
+}
+
+/* background of the scrollbar except button or resizer */
+.mac-scrollbar::-webkit-scrollbar-track-piece:start {
+  background-color: transparent !important;
+}
+.mac-scrollbar::-webkit-scrollbar-track-piece:end {
+  background-color: transparent !important;
+}
+
+/* The actual scrolling bar */
+.mac-scrollbar::-webkit-scrollbar-thumb {
+  background-color:rgba(21,21,21,0.5);
+  border-radius: 16px;
+  border: 4px solid rgba(255,255,255,0);
+  background-clip: padding-box;
+}
+.mac-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color:rgba(21,21,21,0.7) !important;
+}
+
+/* Remove the button from top and bottom of scrollbar */
+.mac-scrollbar::-webkit-scrollbar-button { display:none }
