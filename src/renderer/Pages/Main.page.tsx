@@ -4,6 +4,8 @@ import {
   Button,
   Checkbox,
   Divider,
+  FormControlLabel,
+  FormLabel,
   Grid,
   List,
   ListItem,
@@ -11,17 +13,22 @@ import {
   TextField,
   Typography,
 } from '@material-ui/core';
-// import {
-//   apiFetch,
-//   getCommits,
-//   getLocalCommits,
-//   getLocalFiles,
-//   getSingleCommit,
-//   walkTest
-// } from '../utils/APIFetch';
 import type { IpcRendererEvent } from 'electron';
 import { FileType } from '../utils/types';
 import { Tree } from './Tree';
+import Pagination from '@material-ui/lab/Pagination';
+
+const pageSize = 30;
+interface ICommitInformation {
+  author: string;
+  message: string;
+  sha: string;
+  date: string;
+  filesChanges: {
+      path: string;
+      type: 'DELETE' | 'CREATE' | 'MODIFY';
+  }[];
+}
 
 export const MainPage: React.FC = () => {
   /*
@@ -29,32 +36,29 @@ export const MainPage: React.FC = () => {
     (state: ApplicationState) => state.tree
   );
   */
+  const [commitFilesLoading, setCommitFilesLoading] = React.useState(false);
+  const [commitPageLoading, setCommitPageLoading] = React.useState(false);
+  const [pageCount, setPageCount] = React.useState(1); 
+  const [page, setPage] = React.useState(1); 
   const [local, setLocal] = React.useState<boolean>(false);
   const [repoPath, setRepoPath] = React.useState('');
   const [currentState, setCurrentState] = React.useState<'FILES' | 'CHANGES'>(
     'FILES'
   );
   const [treeData, setTreeData] = React.useState<FileType | null>(null);
-  const [filesChanged, setFilesChanged] = React.useState<string[]>([]);
+  const [filesChanged, setFilesChanged] = React.useState<ICommitInformation['filesChanges']>([]);
   const [commits, setCommits] = React.useState<
-    | {
-        date: string;
-        sha: string;
-        author: string;
-        message: string;
-      }[]
+    | ICommitInformation[]
     | null
   >(null);
   const [repo, setRepo] = React.useState('');
   const [owner, setOwner] = React.useState('');
+  const [sigEventAmount, setSigEventAmount] = React.useState(9);
+  const [maxDepth, setMaxDepth] = React.useState(9);
   const [excludedPaths, setExcludedPaths] = React.useState('');
-  const [currentCommit, setCurrentCommit] = React.useState<{
-    sha: string;
-    files: string[];
-    author: string;
-    message: string;
-    date: string;
-  } | null>(null);
+  const [selectedCommitKey, setSelectedCommitKey] = React.useState<string | null>(null);
+  const [currentCommit, setCurrentCommit] = React.useState<
+    ICommitInformation | null>(null);
 
   const processMainGenerateResponse = React.useCallback(
     (_: IpcRendererEvent, dataString: string, commitDataString: string) => {
@@ -66,10 +70,33 @@ export const MainPage: React.FC = () => {
     []
   );
 
-  const processMainGetSingleCommitResponse = React.useCallback(
-    (_: IpcRendererEvent, sha: string, files: string[], author: string, message: string, date: string) => {
-      setCurrentCommit({ sha, files, author, message, date });
-      setFilesChanged(files);
+  const processMainGenerateLocalResponse = React.useCallback(
+    (_: IpcRendererEvent, dataString: string, commitDataString: string, totalCount: number) => {
+      console.log('PROCESSING - processMainGenerateLocalResponse');
+      const parsedCommitData = JSON.parse(commitDataString);
+      const parsedTreeData = JSON.parse(dataString);
+      setPageCount(Math.ceil(totalCount / pageSize))
+      setCommits(parsedCommitData);
+      setTreeData(parsedTreeData);
+      console.log('FINSIHED - processMainGenerateLocalResponse');
+    },
+    []
+  );
+
+  const processMainGetCommitsPageResponse = React.useCallback(
+    (_: IpcRendererEvent, commitDataString: string) => {
+      const parsedCommitData = JSON.parse(commitDataString);
+      setCommits(parsedCommitData);
+      setCommitPageLoading(false);
+    },
+    []
+  );
+
+  const processMainGetLocalFilesAtCommitResponse = React.useCallback(
+    (_: IpcRendererEvent, dataString: string) => {
+      const parsedTreeData = JSON.parse(dataString);
+      setTreeData(parsedTreeData);
+      setCommitFilesLoading(false);
     },
     []
   );
@@ -77,7 +104,9 @@ export const MainPage: React.FC = () => {
   React.useEffect(() => {
     const handlerMap: Record<string, (...args: any[]) => void> = {
       'main:generate:response': processMainGenerateResponse,
-      'main:getSingleCommit:response': processMainGetSingleCommitResponse
+      'main:generateLocal:response': processMainGenerateLocalResponse,
+      'main:getCommitsPage:response': processMainGetCommitsPageResponse,
+      'main:getLocalFilesAtCommit:response': processMainGetLocalFilesAtCommitResponse
     };
 
     // Dynamic Bind and Remove
@@ -89,11 +118,10 @@ export const MainPage: React.FC = () => {
         window.ipcRenderer.removeListener(event, handler);
       }
     }
-  }, [processMainGenerateResponse, processMainGetSingleCommitResponse]);
+  }, [processMainGenerateResponse, processMainGenerateLocalResponse, processMainGetCommitsPageResponse]);
 
   const handleGenerateButtonPress = React.useCallback(async () => {
-    const excludedPathsArray = excludedPaths.replace(/\s/g, '').split(',');
-
+    const excludedPathsArray = !excludedPaths ? [] : excludedPaths.replace(/\//g, '\\').replace(/\s/g, '').split(',');
     if (!local) {
       window.ipcRenderer.send(
         'renderer:generate',
@@ -102,7 +130,7 @@ export const MainPage: React.FC = () => {
         excludedPathsArray
       );
     } else {
-      window.ipcRenderer.send('renderer:fetchSomeShitButLocally', repoPath);
+      window.ipcRenderer.send('renderer:generateLocal', repoPath, excludedPathsArray);
     }
   }, [excludedPaths, local, owner, repo, repoPath]);
 
@@ -117,6 +145,7 @@ export const MainPage: React.FC = () => {
       setCurrentState('FILES');
       setFilesChanged([]);
       setCurrentCommit(null);
+      setSelectedCommitKey(null);
     } else {
       setCurrentState('CHANGES');
     }
@@ -151,39 +180,85 @@ export const MainPage: React.FC = () => {
     setLocal(!local);
   }, [local]);
 
+  const handleChangeMaxdepth = React.useCallback((event: any) => {
+    setMaxDepth(event.target.value);
+  }, []);
+
+  const handleChangeSigEvent = React.useCallback((event: any) => {
+    setSigEventAmount(event.target.value);
+  }, []);
+
   const handleCommitSelected = React.useCallback(
-    (sha: string, author: string, message: string, date: string) => async () => {
-      window.ipcRenderer.send('renderer:getSingleCommit', owner, repo, sha, author, message, date);
+    (sha: string, author: string, message: string, date: string, filesChanges?: {path: string, type: 'DELETE' | 'CREATE' | 'MODIFY'}[], uniqueKey: string) => async () => {
+      if (!filesChanges) {
+        if (!local) {
+          window.ipcRenderer.send('renderer:getSingleCommit', owner, repo, sha, author, message, date);
+        } 
+      } else {
+        setCommitFilesLoading(true);
+        setCurrentCommit({sha, filesChanges, author, message, date});
+
+        const excludedPathsArray = !excludedPaths ? [] : excludedPaths.replace(/\//g, '\\').replace(/\s/g, '').split(',');
+        window.ipcRenderer.send('renderer:getLocalFilesAtCommit', repoPath, excludedPathsArray, sha);
+
+        setFilesChanged(filesChanges);
+        setSelectedCommitKey(uniqueKey);
+      }
     },
-    [owner, repo]
+    [owner, repo, local, repoPath, excludedPaths]
   );
 
   const renderCommitListItem = React.useCallback(
-    (value: { sha: string; author: string; message: string; date: string }) => {
-      const { sha, author, message, date } = value;
+    (value: { sha: string; author: string; message: string; date: string, filesChanges?: {path: string, type: 'DELETE' | 'CREATE' | 'MODIFY'}[] }, index: number) => {
+      const { sha, author, message, date, filesChanges } = value;
+      const isSignificant = filesChanges && filesChanges.length >= sigEventAmount;
+      const noChanges = !filesChanged || filesChanges.length === 0;
+
+      let borderColour = 'initial';
+      if (isSignificant) {
+        borderColour = 'orange';
+      } else if (noChanges) {
+        borderColour = 'blue'
+      }
+      const uniqueKey = `${sha}::${index}`;
       return (
+        <>
         <ListItem
-          key={sha}
+          key={uniqueKey}
           button
-          selected={currentCommit && currentCommit.sha === sha}
-          onClick={handleCommitSelected(sha, author, message, date)}
+          selected={selectedCommitKey === uniqueKey}
+          onClick={handleCommitSelected(sha, author, message, date, filesChanges, uniqueKey)}
+          style={{borderLeft: `2px solid ${borderColour}`}}
+          disabled={commitPageLoading || commitFilesLoading}
         >
           {/* <ListItemText>{`${author} - `}</ListItemText>
           <ListItemText>{message}</ListItemText> */}
           <ListItemText>
             <Typography variant="body1">
-              {author}
-              {' - '}
+              <b>{author}</b>
+            </Typography>
+            <Typography variant="caption">
               {date}
             </Typography>
-            <Typography variant="subtitle2">{message}</Typography>
+            <Box height="8px"></Box>
+            <Typography variant="body2"><b>{message}</b></Typography>
           </ListItemText>
-          <Divider />
         </ListItem>
+        <Divider />
+        </>
       );
     },
-    [handleCommitSelected, currentCommit]
+    [handleCommitSelected, currentCommit, commitPageLoading, commitFilesLoading]
   );
+
+  const handlePageSelect = React.useCallback((_event: React.ChangeEvent<unknown>, value: number) => {
+    setPage(value);
+    setCommitPageLoading(true);
+
+    const startingIndex = pageSize * value - pageSize;
+
+    window.ipcRenderer.send('renderer:getCommitsPage', repoPath, startingIndex, pageSize);
+  }, [repoPath]);
 
   return (
     <Box width="100%" height="100%">
@@ -216,32 +291,47 @@ export const MainPage: React.FC = () => {
           <Button onClick={handleChangesButtonPress} variant="contained">
             {currentState === 'FILES' ? 'Changes' : 'Files'}
           </Button>
-          <Checkbox value={local} onChange={handleChangeLocal} />
+          <FormControlLabel control={<Checkbox value={local} onChange={handleChangeLocal}/>} label="Use Local Files" />
           <TextField
             label="Excluded Paths"
             value={excludedPaths}
             onChange={handleChangeExcludedPaths}
           />
+          <TextField
+            label="Max Depth"
+            value={maxDepth}
+            onChange={handleChangeMaxdepth}
+          />
+          <TextField
+            label="Event Threshold"
+            value={sigEventAmount}
+            onChange={handleChangeSigEvent}
+          />
         </Grid>
         <Grid item xs={10}>
           <Box style={{ marginTop: '2vh' }} height="90vh">
-            <Tree
-              data={treeData}
-              maxDepth={+9}
-              colorEncoding="type"
-              filesChanged={filesChanged}
-            />
+            {treeData && 
+              <Tree
+                data={treeData}
+                maxDepth={maxDepth}
+                colorEncoding="type"
+                filesChanged={filesChanged}
+              />
+            }
           </Box>
         </Grid>
         <Grid item xs={2}>
           {currentState === 'CHANGES' && (
-            <Box
-              height="90vh"
-              className="mac-scrollbar"
-              style={{ overflowY: 'auto' }}
-            >
-              <List>{commits.map(renderCommitListItem)}</List>
-            </Box>
+            <>
+              <Pagination count={pageCount} page={page} onChange={handlePageSelect} siblingCount={0} disabled={commitPageLoading || commitFilesLoading}/>
+              <Box
+                height="90vh"
+                className="mac-scrollbar"
+                style={{ overflowY: 'auto' }}
+              >
+                <List>{commits?.map(renderCommitListItem)}</List>
+              </Box>
+            </>
           )}
         </Grid>
       </Grid>

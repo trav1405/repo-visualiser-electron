@@ -25,7 +25,7 @@ import { CircleText } from './CircleText';
 
 type Props = {
   data: FileType;
-  filesChanged?: string[];
+  filesChanged?: {path: string, type: 'DELETE' | 'CREATE' | 'MODIFY'}[];
   maxDepth: number;
   colorEncoding: 'type' | 'number-of-changes' | 'last-change';
 };
@@ -183,6 +183,22 @@ export const Tree = ({ data, filesChanged = [], maxDepth = 9, colorEncoding = 't
     .sort()
     .filter(Boolean);
 
+  const getHighlightData = React.useCallback((path: string) => {
+    const fileChangeEntry = filesChanged.find(f => f.path.replace(/\\\\/g, '\\') === path);
+    console.log(filesChanged);
+    console.log(path);
+    if (fileChangeEntry?.type === 'DELETE') {
+      return { colour: '#a84032', changed: true }; // RED
+    }
+    if (fileChangeEntry?.type === 'CREATE') {
+      return { colour: '#32a852', changed: true }; // GREEN
+    }
+    if (fileChangeEntry?.type === 'MODIFY') {
+      return { colour: '#FCE68A', changed: true }; // ORANGE
+    }
+    return { colour: '#ECEAEB', changed: false };
+  }, [filesChanged]);
+
   return (
     <svg
       width={width}
@@ -218,15 +234,15 @@ export const Tree = ({ data, filesChanged = [], maxDepth = 9, colorEncoding = 't
         if (data.path === looseFilesId) {
           return null;
         }
-        const isHighlighted = filesChanged.includes(data.path);
-        const doHighlight = !!filesChanged.length;
 
+        const doHighlight = !!filesChanged.length;
+        const { colour, changed } = getHighlightData(data.path);
         return (
           <g
             key={data.path}
             style={{
-              fill: doHighlight ? (isHighlighted ? '#FCE68A' : '#ECEAEB') : data.color,
-              transition: `transform ${isHighlighted ? '0.5s' : '0s'} ease-out, fill 0.1s ease-out`
+              fill: doHighlight ? colour : data.color,
+              transition: `transform ${changed ? '0.5s' : '0s'} ease-out, fill 0.1s ease-out`
               // opacity: doHighlight && !isHighlighted ? 0.6 : 1,
             }}
             transform={`translate(${x}, ${y})`}
@@ -243,7 +259,7 @@ export const Tree = ({ data, filesChanged = [], maxDepth = 9, colorEncoding = 't
             ) : (
               <circle
                 style={{
-                  filter: isHighlighted ? 'url(#glow)' : undefined,
+                  filter: changed ? 'url(#glow)' : undefined,
                   transition: 'all 0.5s ease-out'
                 }}
                 r={runningR}
@@ -319,26 +335,26 @@ export const Tree = ({ data, filesChanged = [], maxDepth = 9, colorEncoding = 't
         if (data.path === looseFilesId) {
           return null;
         }
-        const isHighlighted = filesChanged.includes(data.path);
         const doHighlight = !!filesChanged.length;
-        if (isParent && !isHighlighted) {
+        const {changed, colour} = getHighlightData(data.path);
+        if (isParent && !changed) {
           return null;
         }
-        if (selectedNodeId === data.path && !isHighlighted) {
+        if (selectedNodeId === data.path && !changed) {
           return null;
         }
-        if (!(isHighlighted || (!doHighlight && !selectedNode && r > 22))) {
+        if (!(changed || (!doHighlight && !selectedNode && r > 22))) {
           return null;
         }
 
-        const label = isHighlighted ? data.name : truncateString(data.name, Math.floor(r / 4) + 3);
+        const label = changed ? data.name : truncateString(data.name, Math.floor(r / 4) + 3);
 
         return (
           <g
             key={data.path}
             style={{
-              fill: doHighlight ? (isHighlighted ? '#FCE68A' : '#29081916') : data.color,
-              transition: `transform ${isHighlighted ? '0.5s' : '0s'} ease-out`
+              fill: doHighlight ? colour : data.color,
+              transition: `transform ${changed ? '0.5s' : '0s'} ease-out`
             }}
             transform={`translate(${x}, ${y})`}
           >

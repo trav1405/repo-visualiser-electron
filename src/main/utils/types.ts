@@ -16,8 +16,5 @@ export type FileType = {
   name: string;
   path: string;
   size: number;
-  commits?: CommitType[];
-  imports?: ImportType[];
-  numberOfLines?: number;
   children?: FileType[];
 };

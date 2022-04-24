@@ -5,7 +5,7 @@ import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
-import { apiFetch, getCommits, getSingleCommit } from './utils/APIFetch';
+import { apiFetch, getCommits, getLocalCommits, getLocalFiles, getLocalFilesAtCommit, getSingleCommit } from './utils/APIFetch';
 
 export default class AppUpdater {
   constructor() {
@@ -20,10 +20,6 @@ let mainWindow: BrowserWindow | null = null;
 ipcMain.on(
   'renderer:generate',
   async (event: IpcMainEvent, owner: string, repo: string, excludedPathsArray: string[]) => {
-    console.log(event);
-    console.log(`Owner: ${owner}`);
-    console.log(`Repo: ${repo}`);
-    console.log(`Excluded Paths: ${excludedPathsArray.join(', ')}`)
     const data = await apiFetch(owner, repo, excludedPathsArray);
     const commitData = await getCommits(owner, repo);
 
@@ -36,6 +32,34 @@ ipcMain.on(
 );
 
 ipcMain.on(
+  'renderer:generateLocal',
+  async (event: IpcMainEvent, repoPath: string, excludedPathsArray: string[]) => {
+    console.log('GENERATE LOCAL EVENT');
+    const data = await getLocalFiles(repoPath, excludedPathsArray);
+    const {commits, totalCount} = await getLocalCommits(repoPath);
+
+    event.sender.send(
+      'main:generateLocal:response',
+      JSON.stringify(data),
+      JSON.stringify(commits),
+      totalCount
+    );
+  }
+);
+
+ipcMain.on(
+  'renderer:getCommitsPage',
+  async (event: IpcMainEvent, repoPath: string, startingIndex: number, pageSize: number) => {
+    const {commits}  = await getLocalCommits(repoPath, startingIndex, pageSize);
+
+    event.sender.send(
+      'main:getCommitsPage:response',
+      JSON.stringify(commits)
+    );
+  }
+);
+
+ipcMain.on(
   'renderer:getSingleCommit',
   async (event: IpcMainEvent, owner: string, repo: string, sha: string, author: string, message: string, date: string) => {
     const files = await getSingleCommit(owner, repo, sha);
@@ -43,6 +67,18 @@ ipcMain.on(
     event.sender.send(
       'main:getSingleCommit:response',
       sha, files, author, message, date
+    );
+  }
+);
+
+ipcMain.on(
+  'renderer:getLocalFilesAtCommit',
+  async (event: IpcMainEvent, rootPath: string, excludedPaths: string[], commit: string) => {
+    const files = await getLocalFilesAtCommit(rootPath, excludedPaths, commit);
+
+    event.sender.send(
+      'main:getLocalFilesAtCommit:response',
+      JSON.stringify(files)
     );
   }
 );
