@@ -5,7 +5,7 @@ import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
-import { apiFetch, getCommits, getLocalCommits, getLocalFiles, getLocalFilesAtCommit, getSingleCommit } from './utils/APIFetch';
+import { apiFetch, getCommits, getFilesAtCommit, getLocalCommits, getLocalFiles } from './utils/APIFetch';
 
 export default class AppUpdater {
   constructor() {
@@ -20,8 +20,11 @@ let mainWindow: BrowserWindow | null = null;
 ipcMain.on(
   'renderer:generate',
   async (event: IpcMainEvent, owner: string, repo: string, excludedPathsArray: string[]) => {
+    const startTime = Date.now();
     const data = await apiFetch(owner, repo, excludedPathsArray);
+    console.log(`Time taken to get files: ${(Date.now() - startTime)/1000}`)
     const commitData = await getCommits(owner, repo);
+    console.log(`Time taken to get commits: ${(Date.now() - startTime)/1000}`)
 
     event.sender.send(
       'main:generate:response',
@@ -34,15 +37,29 @@ ipcMain.on(
 ipcMain.on(
   'renderer:generateLocal',
   async (event: IpcMainEvent, repoPath: string, excludedPathsArray: string[]) => {
-    console.log('GENERATE LOCAL EVENT');
+    const startTime = Date.now();
     const data = await getLocalFiles(repoPath, excludedPathsArray);
+    console.log(`Time taken to get files: ${(Date.now() - startTime)/1000}`)
     const {commits, totalCount} = await getLocalCommits(repoPath);
+    console.log(`Time taken to get commits: ${(Date.now() - startTime)/1000}`)
 
     event.sender.send(
       'main:generateLocal:response',
       JSON.stringify(data),
       JSON.stringify(commits),
       totalCount
+    );
+  }
+);
+
+ipcMain.on(
+  'renderer:getAPICommitsPage',
+  async (event: IpcMainEvent, owner: string, repo: string, page: number, pageSize: number) => {
+    const commits = await getCommits(owner, repo, page, pageSize);
+
+    event.sender.send(
+      'main:getAPICommitsPage:response',
+      JSON.stringify(commits)
     );
   }
 );
@@ -60,24 +77,25 @@ ipcMain.on(
 );
 
 ipcMain.on(
-  'renderer:getSingleCommit',
-  async (event: IpcMainEvent, owner: string, repo: string, sha: string, author: string, message: string, date: string) => {
-    const files = await getSingleCommit(owner, repo, sha);
+  'renderer:getLocalFilesAtCommit',
+  async (event: IpcMainEvent, rootPath: string, excludedPaths: string[], commit: string) => {
+    //const files = await getLocalFilesAtCommit(rootPath, excludedPaths, commit);
+    const files = await getFilesAtCommit(rootPath, excludedPaths, commit);
 
     event.sender.send(
-      'main:getSingleCommit:response',
-      sha, files, author, message, date
+      'main:getLocalFilesAtCommit:response',
+      JSON.stringify(files)
     );
   }
 );
 
 ipcMain.on(
-  'renderer:getLocalFilesAtCommit',
-  async (event: IpcMainEvent, rootPath: string, excludedPaths: string[], commit: string) => {
-    const files = await getLocalFilesAtCommit(rootPath, excludedPaths, commit);
+  'renderer:getRemoteFilesAtCommit',
+  async (event: IpcMainEvent, owner: string, repo: string, excludedPaths: string[], commit: string) => {
+    const files = await apiFetch(owner, repo, excludedPaths, commit);
 
     event.sender.send(
-      'main:getLocalFilesAtCommit:response',
+      'main:getRemoteFilesAtCommit:response',
       JSON.stringify(files)
     );
   }

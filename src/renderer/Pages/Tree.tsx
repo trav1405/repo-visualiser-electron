@@ -185,8 +185,6 @@ export const Tree = ({ data, filesChanged = [], maxDepth = 9, colorEncoding = 't
 
   const getHighlightData = React.useCallback((path: string) => {
     const fileChangeEntry = filesChanged.find(f => f.path.replace(/\\\\/g, '\\') === path);
-    console.log(filesChanged);
-    console.log(path);
     if (fileChangeEntry?.type === 'DELETE') {
       return { colour: '#a84032', changed: true }; // RED
     }

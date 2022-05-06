@@ -1,17 +1,20 @@
 import fs from 'fs';
 import { Octokit } from '@octokit/rest';
-import { log, ReadCommitResult, readTree, TreeEntry, currentBranch, fetch } from 'isomorphic-git';
+import { log, ReadCommitResult, readTree, TreeEntry, currentBranch, readCommit } from 'isomorphic-git';
 import * as nodePath from 'path';
 import { FileType } from './types';
 import moment from 'moment';
 import util from 'util';
 import * as childProcesses from 'child_process';
+import dotenv from 'dotenv';
 const exec = util.promisify(childProcesses.exec);
+
+dotenv.config();
 
 function getOcto() {
   return new Octokit({
-    username: 'trav1405',
-    auth: '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',
+    username: process.env.GITHUB_USERNAME,
+    auth: process.env.API_KEY,
     log: {
       debug: () => {},
       info: () => {},
@@ -29,7 +32,8 @@ function getOcto() {
 export async function apiFetch(
   owner: string,
   repo: string,
-  excludedPaths: string[] = []
+  excludedPaths: string[] = [],
+  sha?: string
 ): Promise<FileType> {
   const foldersToIgnore = ['.git', 'node_modules', ...excludedPaths];
 
@@ -42,6 +46,7 @@ export async function apiFetch(
       owner,
       repo,
       path,
+      ref: sha
     });
 
     if (Array.isArray(data)) {
@@ -84,32 +89,40 @@ export async function apiFetch(
   return tree;
 }
 
-export async function getCommits(owner: string, repo: string) {
+export async function getCommits(owner: string, repo: string, page: number = 1, limit: number = 30) {
+
+  const statusToType = (status: string): 'DELETE' | 'CREATE' | 'MODIFY'  => {
+    if (status === 'modified') return 'MODIFY';
+    if (status === 'added') return 'CREATE';
+    if (status === 'removed') return 'DELETE';
+    return 'MODIFY';
+  }
   const octo = getOcto();
 
   const { data } = await octo.rest.repos.listCommits({
     owner,
     repo,
-    per_page: 30,
+    page,
+    per_page: limit,
   });
 
-  return data.map((e) => ({
-    author: e.commit.author?.name,
-    message: e.commit.message,
-    sha: e.sha,
-    date: e.commit.author?.date,
-  }));
-}
+  let commitData = [];
 
-export async function getSingleCommit(
-  owner: string,
-  repo: string,
-  sha: string
-) {
-  const octo = getOcto();
-  const { data } = await octo.rest.repos.getCommit({ owner, repo, ref: sha });
+  for (const d of data) {
+    const { data: singleData } = await octo.rest.repos.getCommit({ owner, repo, ref: d.sha });
 
-  return data.files?.map((e) => e.filename);
+    const processedData = singleData.files?.map(e => ({path: e.filename, type: e.status && statusToType(e.status)}))
+
+    commitData.push({
+      author: d.commit.author?.name,
+      message: d.commit.message,
+      sha: d.sha,
+      date: d.commit.author?.date,
+      filesChanges: processedData
+    })
+  }
+
+  return commitData;
 }
 
 type RecursiveTreeEntry = (TreeEntry & { children: RecursiveTreeEntry[] });
@@ -208,14 +221,6 @@ export async function getLocalCommits(dir: string, startIndex: number = 0, limit
   return {commits, totalCount: allCommits.length};
 }
 
-export async function getLocalSingleCommit(dir: string, sha: string) {
-  const gitdir = `${dir}/.git`;
-
-  const { tree } = await readTree({ fs, dir, gitdir, oid: sha });
-
-  return tree.map((e) => e.path);
-}
-
 export async function getLocalFilesAtCommit(rootPath: string = '', excludedPaths: string[] = [], commit?: string): Promise<FileType> {
   let previousBranch: string | null = null;
   if (commit !== undefined) {
@@ -234,6 +239,46 @@ export async function getLocalFilesAtCommit(rootPath: string = '', excludedPaths
     await exec(`git checkout ${previousBranch}`, { cwd: rootPath, shell: 'C:\\Program Files\\Git\\git-bash.exe' });
   }
   return localFiles;
+}
+
+export async function getFilesAtCommit(dir: string = '', excludedPaths: string[] = [], commit: string) {
+  const gitdir = `${dir}/.git`;
+  const cData = await readCommit({fs, dir, gitdir, oid: commit});
+
+  const foldersToIgnore = ['.git', 'node_modules', ...excludedPaths];
+
+  cData.commit.tree;
+
+  const readCommitTree = async (oid: string, path: string, isFolder = true): Promise<any> => {
+    console.log(`Looking in: ${path}`);
+    const tree = await readTree({fs, dir, gitdir, oid});
+
+    if (isFolder) {
+      const children = [];
+
+      for (const fileOrFolder of tree.tree) {
+        const fullPath = nodePath.join(path, fileOrFolder.path)
+        if (foldersToIgnore.includes(fileOrFolder.path)) continue;
+        let stats;
+        if (fileOrFolder.type === 'tree') {
+          stats = await readCommitTree(fileOrFolder.oid, fullPath, true);
+        } else {
+          stats = {name: fullPath.split('\\').filter(Boolean).slice(-1)[0], path: fullPath, size: 1}
+          console.log(stats.name);
+        }
+        if (stats) {
+          children.push(stats);
+        }
+      }
+
+      return {
+        ...{name: path.split('\\').filter(Boolean).slice(-1)[0], path, size: 0}, children
+      }
+    }
+  }
+
+  const tree = await readCommitTree(commit, '', true)
+  return tree;
 }
 
 export async function getLocalFiles(

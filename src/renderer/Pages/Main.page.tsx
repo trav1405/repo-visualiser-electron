@@ -5,7 +5,6 @@ import {
   Checkbox,
   Divider,
   FormControlLabel,
-  FormLabel,
   Grid,
   List,
   ListItem,
@@ -36,9 +35,10 @@ export const MainPage: React.FC = () => {
     (state: ApplicationState) => state.tree
   );
   */
+  const [rebuildWithBranch, setRebuildWithBranch] = React.useState(true);
   const [commitFilesLoading, setCommitFilesLoading] = React.useState(false);
   const [commitPageLoading, setCommitPageLoading] = React.useState(false);
-  const [pageCount, setPageCount] = React.useState(1); 
+  const [pageCount, setPageCount] = React.useState(20); 
   const [page, setPage] = React.useState(1); 
   const [local, setLocal] = React.useState<boolean>(false);
   const [repoPath, setRepoPath] = React.useState('');
@@ -66,19 +66,19 @@ export const MainPage: React.FC = () => {
       const parsedTreeData = JSON.parse(dataString);
       setCommits(parsedCommitData);
       setTreeData(parsedTreeData);
+      setPage(1);
     },
     []
   );
 
   const processMainGenerateLocalResponse = React.useCallback(
     (_: IpcRendererEvent, dataString: string, commitDataString: string, totalCount: number) => {
-      console.log('PROCESSING - processMainGenerateLocalResponse');
       const parsedCommitData = JSON.parse(commitDataString);
       const parsedTreeData = JSON.parse(dataString);
       setPageCount(Math.ceil(totalCount / pageSize))
       setCommits(parsedCommitData);
       setTreeData(parsedTreeData);
-      console.log('FINSIHED - processMainGenerateLocalResponse');
+      setPage(1);
     },
     []
   );
@@ -101,12 +101,23 @@ export const MainPage: React.FC = () => {
     []
   );
 
+  const processMainGetRemoteFilesAtCommitResponse = React.useCallback(
+    (_: IpcRendererEvent, dataString: string) => {
+      const parsedTreeData = JSON.parse(dataString);
+      setTreeData(parsedTreeData);
+      setCommitFilesLoading(false);
+    },
+    []
+  );
+
   React.useEffect(() => {
     const handlerMap: Record<string, (...args: any[]) => void> = {
       'main:generate:response': processMainGenerateResponse,
       'main:generateLocal:response': processMainGenerateLocalResponse,
       'main:getCommitsPage:response': processMainGetCommitsPageResponse,
-      'main:getLocalFilesAtCommit:response': processMainGetLocalFilesAtCommitResponse
+      'main:getLocalFilesAtCommit:response': processMainGetLocalFilesAtCommitResponse,
+      'main:getRemoteFilesAtCommit:response': processMainGetRemoteFilesAtCommitResponse,
+      'main:getAPICommitsPage:response': processMainGetCommitsPageResponse
     };
 
     // Dynamic Bind and Remove
@@ -121,7 +132,7 @@ export const MainPage: React.FC = () => {
   }, [processMainGenerateResponse, processMainGenerateLocalResponse, processMainGetCommitsPageResponse]);
 
   const handleGenerateButtonPress = React.useCallback(async () => {
-    const excludedPathsArray = !excludedPaths ? [] : excludedPaths.replace(/\//g, '\\').replace(/\s/g, '').split(',');
+    const excludedPathsArray = !excludedPaths ? [] : (local ? excludedPaths.replace(/\//g, '\\').replace(/\s/g, '').split(',') : excludedPaths.replace(/\s/g, '').split(','));
     if (!local) {
       window.ipcRenderer.send(
         'renderer:generate',
@@ -180,6 +191,10 @@ export const MainPage: React.FC = () => {
     setLocal(!local);
   }, [local]);
 
+  const handleChangeRebuildWithBranch = React.useCallback(() => {
+    setRebuildWithBranch(!rebuildWithBranch);
+  }, [rebuildWithBranch]);
+
   const handleChangeMaxdepth = React.useCallback((event: any) => {
     setMaxDepth(event.target.value);
   }, []);
@@ -189,30 +204,30 @@ export const MainPage: React.FC = () => {
   }, []);
 
   const handleCommitSelected = React.useCallback(
-    (sha: string, author: string, message: string, date: string, filesChanges?: {path: string, type: 'DELETE' | 'CREATE' | 'MODIFY'}[], uniqueKey: string) => async () => {
-      if (!filesChanges) {
-        if (!local) {
-          window.ipcRenderer.send('renderer:getSingleCommit', owner, repo, sha, author, message, date);
-        } 
-      } else {
+    (sha: string, author: string, message: string, date: string, uniqueKey: string, filesChanges?: {path: string, type: 'DELETE' | 'CREATE' | 'MODIFY'}[]) => async () => {
+      if (!filesChanges) return;
+      const excludedPathsArray = !excludedPaths ? [] : (local ? excludedPaths.replace(/\//g, '\\').replace(/\s/g, '').split(',') : excludedPaths.replace(/\s/g, '').split(','));
+      if (local && rebuildWithBranch) {
         setCommitFilesLoading(true);
-        setCurrentCommit({sha, filesChanges, author, message, date});
-
-        const excludedPathsArray = !excludedPaths ? [] : excludedPaths.replace(/\//g, '\\').replace(/\s/g, '').split(',');
         window.ipcRenderer.send('renderer:getLocalFilesAtCommit', repoPath, excludedPathsArray, sha);
-
-        setFilesChanged(filesChanges);
-        setSelectedCommitKey(uniqueKey);
       }
+      if (!local && rebuildWithBranch) {
+        setCommitFilesLoading(true);
+        window.ipcRenderer.send('renderer:getRemoteFilesAtCommit', owner, repo, excludedPathsArray, sha);
+      }
+      setCurrentCommit({sha, filesChanges, author, message, date});
+      console.log(filesChanges);
+      setFilesChanged(filesChanges);
+      setSelectedCommitKey(uniqueKey);
     },
-    [owner, repo, local, repoPath, excludedPaths]
+    [owner, repo, local, repoPath, excludedPaths, rebuildWithBranch]
   );
 
   const renderCommitListItem = React.useCallback(
     (value: { sha: string; author: string; message: string; date: string, filesChanges?: {path: string, type: 'DELETE' | 'CREATE' | 'MODIFY'}[] }, index: number) => {
       const { sha, author, message, date, filesChanges } = value;
       const isSignificant = filesChanges && filesChanges.length >= sigEventAmount;
-      const noChanges = !filesChanged || filesChanges.length === 0;
+      const noChanges = !filesChanges || filesChanges.length === 0;
 
       let borderColour = 'initial';
       if (isSignificant) {
@@ -227,7 +242,7 @@ export const MainPage: React.FC = () => {
           key={uniqueKey}
           button
           selected={selectedCommitKey === uniqueKey}
-          onClick={handleCommitSelected(sha, author, message, date, filesChanges, uniqueKey)}
+          onClick={handleCommitSelected(sha, author, message, date, uniqueKey, filesChanges)}
           style={{borderLeft: `2px solid ${borderColour}`}}
           disabled={commitPageLoading || commitFilesLoading}
         >
@@ -255,15 +270,20 @@ export const MainPage: React.FC = () => {
     setPage(value);
     setCommitPageLoading(true);
 
-    const startingIndex = pageSize * value - pageSize;
+    if (local) {
+      const startingIndex = pageSize * value - pageSize;
+  
+      window.ipcRenderer.send('renderer:getCommitsPage', repoPath, startingIndex, pageSize);
+    } else {
+      window.ipcRenderer.send('renderer:getAPICommitsPage', owner, repo, page, pageSize);
+    }
 
-    window.ipcRenderer.send('renderer:getCommitsPage', repoPath, startingIndex, pageSize);
-  }, [repoPath]);
+  }, [repoPath, local]);
 
   return (
     <Box width="100%" height="100%">
       <Grid container>
-        <Grid item xs={12}>
+        <Grid item xs={9} >
           {!local && (
             <>
               <TextField
@@ -288,11 +308,9 @@ export const MainPage: React.FC = () => {
           <Button onClick={handleGenerateButtonPress} variant="contained">
             Generate
           </Button>
-          <Button onClick={handleChangesButtonPress} variant="contained">
-            {currentState === 'FILES' ? 'Changes' : 'Files'}
-          </Button>
-          <FormControlLabel control={<Checkbox value={local} onChange={handleChangeLocal}/>} label="Use Local Files" />
+          <FormControlLabel style={{paddingLeft: "12px"}} control={<Checkbox checked={local} onChange={handleChangeLocal}/>} label="Use Local Files" />
           <TextField
+            style={{width: '20%'}}
             label="Excluded Paths"
             value={excludedPaths}
             onChange={handleChangeExcludedPaths}
@@ -307,6 +325,10 @@ export const MainPage: React.FC = () => {
             value={sigEventAmount}
             onChange={handleChangeSigEvent}
           />
+        </Grid>
+        <Grid item xs={3}>
+          <FormControlLabel control={<Checkbox checked={currentState === 'CHANGES'} onChange={handleChangesButtonPress}/>} label="Show Commits" />
+          <FormControlLabel style={{paddingLeft: "12px"}} control={<Checkbox checked={rebuildWithBranch} onChange={handleChangeRebuildWithBranch}/>} label="Show Repo State" />
         </Grid>
         <Grid item xs={10}>
           <Box style={{ marginTop: '2vh' }} height="90vh">

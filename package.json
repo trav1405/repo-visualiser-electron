@@ -222,6 +222,7 @@
     "@material-ui/lab": "4.0.0-alpha.60",
     "@octokit/rest": "^18.12.0",
     "d3": "^7.4.4",
+    "dotenv": "^16.0.0",
     "electron-debug": "^3.2.0",
     "electron-log": "^4.4.6",
     "electron-updater": "^4.6.5",
